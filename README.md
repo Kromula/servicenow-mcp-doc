@@ -32,7 +32,7 @@ npm test
 
 4. Add to Claude Code:
 ```bash
-claude mcp add --transport stdio servicenow --scope user -- node "E:\Claude Dev\MyInstance\servicenow-mcp\server.js"
+claude mcp add --transport stdio servicenow --scope user -- node "/path/to/servicenow-mcp/server.js"
 ```
 
 ## Available Tools
