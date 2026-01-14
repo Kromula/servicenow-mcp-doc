@@ -149,6 +149,52 @@ class ServiceNowClient {
     // Uses the Script Execution API if available on instance
     return this.request("POST", "/api/now/script/execute", { script });
   }
+
+  // Story Management (rm_story)
+  async getStories(limit = 10, query = "") {
+    return this.getRecords("rm_story", limit, query);
+  }
+
+  async getStory(sysIdOrNumber) {
+    // Check if it's a story number (starts with letters) or sys_id (32 char hex)
+    const isNumber = /^[A-Z]/.test(sysIdOrNumber);
+
+    if (isNumber) {
+      // Query by number field
+      const result = await this.getRecords("rm_story", 1, `number=${sysIdOrNumber}`);
+      if (result.result && result.result.length > 0) {
+        return result.result[0];
+      } else {
+        throw new Error(`Story with number ${sysIdOrNumber} not found`);
+      }
+    } else {
+      // Query by sys_id
+      return this.getRecord("rm_story", sysIdOrNumber);
+    }
+  }
+
+  async updateStoryBuildNotes(sysIdOrNumber, buildNotes, append = false) {
+    // Check if it's a story number or sys_id
+    const isNumber = /^[A-Z]/.test(sysIdOrNumber);
+    let storyId = sysIdOrNumber;
+
+    if (isNumber) {
+      // Get the sys_id from the story number
+      const story = await this.getStory(sysIdOrNumber);
+      storyId = story.result ? story.result.sys_id : story.sys_id;
+    }
+
+    // If appending, get existing notes first
+    if (append) {
+      const story = await this.getRecord("rm_story", storyId);
+      const existingNotes = story.result ? story.result.u_build_notes : story.u_build_notes || "";
+      const updatedNotes = existingNotes + (existingNotes ? "\n\n" : "") + buildNotes;
+      return this.updateRecord("rm_story", storyId, { u_build_notes: updatedNotes });
+    }
+
+    // Otherwise just set the notes
+    return this.updateRecord("rm_story", storyId, { u_build_notes: buildNotes });
+  }
 }
 
 // Initialize ServiceNow client
@@ -569,6 +615,61 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["name", "collection", "script"],
       },
     },
+    {
+      name: "get_stories",
+      description: "Get stories (rm_story) with optional filters",
+      inputSchema: {
+        type: "object",
+        properties: {
+          limit: {
+            type: "number",
+            description: "Maximum number of stories",
+            default: 10,
+          },
+          query: {
+            type: "string",
+            description: "Encoded query (e.g., 'active=true^state=in_progress')",
+          },
+        },
+      },
+    },
+    {
+      name: "get_story",
+      description: "Get a specific story by sys_id or story number (e.g., STRY0001234)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sys_id: {
+            type: "string",
+            description: "Story sys_id or story number (e.g., STRY0001234)",
+          },
+        },
+        required: ["sys_id"],
+      },
+    },
+    {
+      name: "update_story_build_notes",
+      description: "Update the u_build_notes HTML field for a story. Use this to document what was built and how.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sys_id: {
+            type: "string",
+            description: "Story sys_id or story number",
+          },
+          build_notes: {
+            type: "string",
+            description: "HTML content for build notes documenting what was built and how",
+          },
+          append: {
+            type: "boolean",
+            description: "If true, append to existing notes. If false, replace entirely.",
+            default: false,
+          },
+        },
+        required: ["sys_id", "build_notes"],
+      },
+    },
   ],
 }));
 
@@ -642,6 +743,22 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "create_business_rule":
         result = await client.createBusinessRule(args);
+        break;
+
+      case "get_stories":
+        result = await client.getStories(args.limit || 10, args.query || "");
+        break;
+
+      case "get_story":
+        result = await client.getStory(args.sys_id);
+        break;
+
+      case "update_story_build_notes":
+        result = await client.updateStoryBuildNotes(
+          args.sys_id,
+          args.build_notes,
+          args.append || false
+        );
         break;
 
       default:

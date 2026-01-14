@@ -6,6 +6,7 @@ Model Context Protocol (MCP) server for ServiceNow integration with Claude Code.
 
 - Full CRUD operations on any ServiceNow table
 - Specialized incident management
+- Story management (rm_story) with build notes support
 - UI Action creation and management
 - Business Rules management
 - Table schema exploration
@@ -30,10 +31,12 @@ SERVICENOW_PASSWORD=your-password
 npm test
 ```
 
-4. Add to Claude Code:
+4. Add to Claude Code CLI:
 ```bash
-claude mcp add --transport stdio servicenow --scope user -- node "/path/to/servicenow-mcp/server.js"
+claude mcp add servicenow -- node /Users/daniel.oconnor/Documents/Claude/servicenow-mcp-doc/server.js
 ```
+
+Note: The `--` separator is required before the command.
 
 ## Available Tools
 
@@ -59,6 +62,11 @@ claude mcp add --transport stdio servicenow --scope user -- node "/path/to/servi
 - `get_business_rules` - List Business Rules
 - `create_business_rule` - Create new Business Rule
 
+### Story Management
+- `get_stories` - Query stories (rm_story) with filters
+- `get_story` - Get specific story by sys_id or story number (e.g., STRY0001234)
+- `update_story_build_notes` - Update the u_build_notes HTML field for documentation
+
 ### Schema Discovery
 - `get_tables` - List available tables
 - `get_table_schema` - Get table structure
@@ -72,6 +80,9 @@ Once installed, you can ask Claude:
 - "List all open incidents assigned to my group"
 - "Create an incident for the database timeout issue"
 - "What tables are available in my ServiceNow instance?"
+- "Get story STRY0010001 and show me the details"
+- "List all active stories in progress"
+- "Update the build notes for story STRY0010001 with implementation details"
 
 ## Security
 
