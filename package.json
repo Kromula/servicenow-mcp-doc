@@ -1,0 +1,18 @@
+{
+  "name": "servicenow-mcp-server",
+  "version": "1.0.0",
+  "description": "ServiceNow MCP Server for Claude Code integration",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test-connection.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "dotenv": "^16.4.5"
+  },
+  "keywords": ["servicenow", "mcp", "claude"],
+  "author": "",
+  "license": "MIT"
+}
