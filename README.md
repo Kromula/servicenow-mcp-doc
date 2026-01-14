@@ -78,3 +78,29 @@ Once installed, you can ask Claude:
 - Never commit `.env` file to version control
 - Use service accounts with appropriate permissions
 - Consider OAuth 2.0 for production use
+
+## Disclaimer
+
+**This is NOT an official ServiceNow application.**
+
+This tool is an independent, community-developed project and is:
+
+❌ NOT developed by ServiceNow, Inc.
+❌ NOT endorsed or supported by ServiceNow, Inc.
+❌ NOT covered by any ServiceNow support agreements or warranties
+
+ServiceNow, Inc. holds no liability or accountability for:
+
+- The functionality, reliability, or security of this application
+- Any data generated, modified, or deleted through use of this tool
+- Any issues, damages, or losses resulting from use of this application
+- Any support, maintenance, or updates to this software
+
+This tool interacts with ServiceNow instances using publicly available APIs and the Model Context Protocol (MCP). Users are solely responsible for:
+
+- Ensuring compliance with their organization's ServiceNow usage policies
+- Proper configuration and security of service accounts
+- Any data created or modified in their ServiceNow instances
+- Following ServiceNow's terms of service and acceptable use policies
+
+**Use at your own risk. Always test thoroughly in non-production environments.**
