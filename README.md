@@ -33,7 +33,7 @@ npm test
 
 4. Add to Claude Code CLI:
 ```bash
-claude mcp add servicenow -- node /Users/daniel.oconnor/Documents/Claude/servicenow-mcp-doc/server.js
+claude mcp add servicenow -- node /Users/<usename>/Documents/Claude/servicenow-mcp-doc/server.js
 ```
 
 Note: The `--` separator is required before the command.
