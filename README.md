@@ -1,3 +1,46 @@
+## ⚠️ PROJECT STATUS: PAUSED
+
+> **Note:** This repository is currently on hold while I explore a new direction for the MCP architecture.
+
+### What's Changing?
+
+I'm evolving this MCP from a simple ServiceNow API wrapper into an **orchestration layer** that coordinates multiple ServiceNow development tools. This new approach may involve:
+
+- Integration with local development tools
+- Workflow automation across multiple utilities
+- Personal configuration and credentials management
+
+### Why Paused?
+
+During this experimental phase, the repository may contain:
+- ⚠️ Local file paths and environment-specific configurations
+- ⚠️ Sensitive information not suitable for public sharing
+- 🔧 Rapid architectural changes and breaking modifications
+
+I'm taking time to evaluate whether this orchestrated approach is:
+1. Stable enough for public use
+2. Generalizable beyond my specific setup
+3. Properly secured for public distribution
+
+### Repository Status
+
+✅ **This code remains available** as a starting point for building your own ServiceNow MCP server  
+✅ The existing API wrapper functionality is stable and usable  
+❌ Active development and documentation updates are paused  
+
+### Timeline
+
+I'll reassess this direction in the coming weeks. Possible outcomes:
+- 🔄 Resume with the new orchestration architecture (if generalizable)
+- 🔀 Split into separate repos (public MCP + private orchestrator)
+- ⏮️ Revert to the original focused API wrapper approach
+
+---
+
+**Questions?** Feel free to fork this repo and adapt it for your needs! The existing codebase provides a solid foundation for ServiceNow MCP development.
+
+---
+
 # ServiceNow MCP Server
 
 Model Context Protocol (MCP) server for ServiceNow integration with Claude Code.
