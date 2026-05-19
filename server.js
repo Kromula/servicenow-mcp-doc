@@ -93,6 +93,13 @@ class ServiceNowClient {
     return this.request("DELETE", `/api/now/table/${tableName}/${sysId}`);
   }
 
+  async createAtfSteps(testSysId, steps) {
+    return this.request("POST", "/api/now/claude_atf_step_builder/steps", {
+      test_sys_id: testSysId,
+      steps,
+    });
+  }
+
   // Specific operations
   async getIncidents(limit = 10, query = "") {
     return this.getRecords("incident", limit, query);
@@ -323,6 +330,37 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["table", "sys_id"],
+      },
+    },
+    {
+      name: "create_atf_steps",
+      description:
+        "Create one or more ATF test steps with their input variables populated (script, field_values, assert_type, view, form_ui, etc.). Calls the privileged 'Claude ATF Step Builder' Scripted REST API at /api/now/claude_atf_step_builder/steps, which writes the sys_variable_value rows that the standard Table API cannot due to ACL restrictions. The endpoint must be installed on the target instance (see servicenow-dev-helper/setup/claude-atf-step-builder/).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          test_sys_id: {
+            type: "string",
+            description: "sys_id of the parent sys_atf_test record",
+          },
+          steps: {
+            type: "array",
+            description:
+              "Ordered array of step definitions. Each item: { step_config: <sys_atf_step_config sys_id>, order?: <number>, table?: <string>, notes?: <string>, inputs?: { <element_name>: <value>, ... } }. Use 'inputs' to pass element-name -> value pairs for the step config's variables (e.g. { script: '...', field_values: 'state=3', assert_type: 'form_submitted_to_server' }).",
+            items: {
+              type: "object",
+              properties: {
+                step_config: { type: "string" },
+                order: { type: "number" },
+                table: { type: "string" },
+                notes: { type: "string" },
+                inputs: { type: "object" },
+              },
+              required: ["step_config"],
+            },
+          },
+        },
+        required: ["test_sys_id", "steps"],
       },
     },
     {
@@ -699,6 +737,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "delete_record":
         result = await client.deleteRecord(args.table, args.sys_id);
+        break;
+
+      case "create_atf_steps":
+        result = await client.createAtfSteps(args.test_sys_id, args.steps);
         break;
 
       case "get_incidents":
