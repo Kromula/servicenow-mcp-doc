@@ -1,46 +1,121 @@
-# ServiceNow MCP Server
+# ServiceNow MCP Orchestrator
 
-Model Context Protocol (MCP) server for ServiceNow integration with Claude Code.
+**Unified Model Context Protocol (MCP) server that orchestrates all your ServiceNow development tools.**
 
 ## Features
 
+### 🎯 Tool Orchestration
+- **Script Checker** - Validate scripts against best practices
+- **Data Loader** - Generate realistic test data
+- **UX Analyzer** - Automated accessibility and UX analysis
+- **Taxonomy Helper** - AI-powered taxonomy recommendations
+
+### 🔌 Direct API Access
 - Full CRUD operations on any ServiceNow table
-- Specialized incident management
-- Story management (rm_story) with build notes support
+- Specialized incident, story, and change management
 - UI Action creation and management
 - Business Rules management
 - Table schema exploration
 - Direct ServiceNow REST API integration
 
-## Setup
+### 🏢 Multi-Instance Support
+- Switch between multiple ServiceNow instances
+- Separate credentials per instance
+- Configured via environment variables
 
-1. Install dependencies:
+## Quick Start
+
+### 1. Install Dependencies
 ```bash
+cd "C:\Coding Projects\servicenow-mcp-doc"
 npm install
 ```
 
-2. Configure credentials in `.env`:
-```
-SERVICENOW_INSTANCE=https://your-instance.service-now.com/
-SERVICENOW_USERNAME=your-username
-SERVICENOW_PASSWORD=your-password
-```
+### 2. Configure Instances
 
-3. Test connection:
+Copy `.env.example` to `.env`:
 ```bash
-npm test
+cp .env.example .env
 ```
 
-4. Add to Claude Code CLI:
+Edit `.env` with your ServiceNow credentials:
+```env
+# Instance 1
+MY_INSTANCE_URL=your-instance
+MY_INSTANCE_USERNAME=admin
+MY_INSTANCE_PASSWORD=your_password
+
+# Instance 2
+FORVIS_INSTANCE_URL=forvis-dev
+FORVIS_INSTANCE_USERNAME=admin
+FORVIS_INSTANCE_PASSWORD=your_password
+```
+
+### 3. Test Setup
 ```bash
-claude mcp add servicenow -- node /Users/<usename>/Documents/Claude/servicenow-mcp-doc/server.js
+npm run test:orchestrator
 ```
 
-Note: The `--` separator is required before the command.
+### 4. Add to Claude Code
+
+Add to `~/.claude.json` or `C:\Users\YOUR_USERNAME\.claude.json`:
+```json
+{
+  "mcpServers": {
+    "servicenow-orchestrator": {
+      "command": "node",
+      "args": ["C:\\Coding Projects\\servicenow-mcp-doc\\server.js"],
+      "env": {}
+    }
+  }
+}
+```
+
+**Windows**: Use double backslashes (`\\`) in paths.
+
+### 5. Restart Claude Code
+
+That's it! Claude now has access to all your ServiceNow tools.
+
+## 📖 Full Documentation
+
+See [ORCHESTRATOR-GUIDE.md](./ORCHESTRATOR-GUIDE.md) for complete setup and usage instructions.
 
 ## Available Tools
 
-### General Table Operations
+### 🛠️ Orchestrator Tools
+
+#### Script Validation
+- `validate_scripts` - Check scripts for best practice violations
+  ```
+  instance: my-instance | forvis-mazar-dev
+  script_type: business_rule | client_script | ui_action | script_include | all
+  limit: number
+  custom_only: boolean
+  ```
+
+#### Test Data Generation
+- `load_test_data` - Generate realistic ServiceNow records
+  ```
+  instance: my-instance | forvis-mazar-dev
+  record_type: incident | change | problem | major-incident | story
+  count: number
+  ```
+
+#### UX Analysis
+- `analyze_ux` - Automated UX/accessibility testing
+  ```
+  instance: my-instance | forvis-mazar-dev
+  analysis_type: general | esc | portal | workspace
+  ```
+
+#### Taxonomy Analysis
+- `analyze_taxonomy` - AI-powered taxonomy recommendations
+  ```
+  instance: my-instance | forvis-mazar-dev
+  ```
+
+### 📊 General Table Operations
 - `get_records` - Query any table
 - `get_record` - Get single record by sys_id
 - `create_record` - Create new records
@@ -71,18 +146,26 @@ Note: The `--` separator is required before the command.
 - `get_tables` - List available tables
 - `get_table_schema` - Get table structure
 
-## Usage with Claude Code
+## Usage Examples
 
-Once installed, you can ask Claude:
+### Orchestrator Commands
+- "Validate all business rules on my-instance"
+- "Generate 25 test incidents on forvis-mazar-dev"
+- "Analyze the Employee Service Center UX"
+- "Check my custom client scripts for violations"
+- "Review taxonomy on forvis-mazar-dev and suggest improvements"
 
+### API Commands
 - "Show me all UI Actions on the incident table"
-- "Create a new UI Action that sends an email notification"
 - "List all open incidents assigned to my group"
 - "Create an incident for the database timeout issue"
-- "What tables are available in my ServiceNow instance?"
 - "Get story STRY0010001 and show me the details"
-- "List all active stories in progress"
 - "Update the build notes for story STRY0010001 with implementation details"
+
+### Combined Workflows
+- "Validate scripts on my-instance, then create incidents for each violation"
+- "Generate 10 test changes, then analyze the UX of the change form"
+- "Get the latest story and append today's UX analysis to build notes"
 
 ## Security
 

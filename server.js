@@ -8,8 +8,261 @@ import {
 import https from "https";
 import { URL } from "url";
 import dotenv from "dotenv";
+import { execFile, exec } from "child_process";
+import { promisify } from "util";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const TOOLS_BASE = path.join(__dirname, "..");
+
+// Tool Orchestrator for CLI tools
+class ToolOrchestrator {
+  constructor() {
+    this.tools = {
+      "script-checker": path.join(TOOLS_BASE, "servicenow-script-checker"),
+      "data-loader": path.join(TOOLS_BASE, "servicenow-data-loader"),
+      "ux-analyzer": path.join(TOOLS_BASE, "ServiceNow-UX-Analyzer"),
+      "taxonomy-helper": path.join(TOOLS_BASE, "servicenow-taxonomy-helper"),
+      "acl-manager": path.join(TOOLS_BASE, "servicenow-acl-manager"),
+    };
+  }
+
+  async validateScripts(instance, options = {}) {
+    const toolPath = this.tools["script-checker"];
+    const { scriptType = "all", limit = 50, customOnly = false } = options;
+
+    try {
+      // Set environment for the instance
+      const env = this._getInstanceEnv(instance);
+
+      const args = [];
+      if (scriptType !== "all") args.push("--type", scriptType);
+      if (limit) args.push("--limit", limit.toString());
+      if (customOnly) args.push("--custom-only");
+
+      const result = await execFileAsync("node", [path.join(toolPath, "dist", "index.js"), ...args], {
+        cwd: toolPath,
+        env: { ...process.env, ...env },
+        timeout: 300000, // 5 minutes
+      });
+
+      return {
+        success: true,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        message: "Script validation completed successfully",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        stdout: error.stdout || "",
+        stderr: error.stderr || "",
+      };
+    }
+  }
+
+  async loadData(instance, recordType, count = 10, options = {}) {
+    const toolPath = this.tools["data-loader"];
+
+    try {
+      const env = this._getInstanceEnv(instance);
+      const args = ["--type", recordType, "--count", count.toString()];
+
+      const result = await execFileAsync("node", [path.join(toolPath, "src", "index.js"), ...args], {
+        cwd: toolPath,
+        env: { ...process.env, ...env },
+        timeout: 600000, // 10 minutes
+      });
+
+      return {
+        success: true,
+        recordType,
+        count,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        message: `Generated ${count} ${recordType} records successfully`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        stdout: error.stdout || "",
+        stderr: error.stderr || "",
+      };
+    }
+  }
+
+  async analyzeUX(instance, analysisType = "general", options = {}) {
+    const toolPath = this.tools["ux-analyzer"];
+    const { guideline } = options;
+
+    const analysisTypeMap = {
+      esc: "ESC",
+      portal: "PORTAL",
+      workspace: "WORKSPACE",
+      general: "ESC",
+    };
+
+    try {
+      const env = this._getInstanceEnv(instance);
+      const extraEnv = {
+        ANALYSIS_TYPE: analysisTypeMap[analysisType] || "ESC",
+      };
+      if (guideline) extraEnv.GUIDELINE_FILE = guideline;
+
+      const result = await execFileAsync("node", [path.join(toolPath, "analyze-servicenow.js")], {
+        cwd: toolPath,
+        env: { ...process.env, ...env, ...extraEnv },
+        timeout: 600000, // 10 minutes
+      });
+
+      return {
+        success: true,
+        analysisType,
+        instance,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        message: "UX analysis completed successfully",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        stdout: error.stdout || "",
+        stderr: error.stderr || "",
+      };
+    }
+  }
+
+  async analyzeTaxonomy(instance, options = {}) {
+    const toolPath = this.tools["taxonomy-helper"];
+
+    try {
+      const env = this._getInstanceEnv(instance);
+
+      const result = await execFileAsync("node", [path.join(toolPath, "core", "analyze.js")], {
+        cwd: toolPath,
+        env: { ...process.env, ...env },
+        timeout: 600000, // 10 minutes
+      });
+
+      return {
+        success: true,
+        instance,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        message: "Taxonomy analysis completed successfully",
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        stdout: error.stdout || "",
+        stderr: error.stderr || "",
+      };
+    }
+  }
+
+  async analyzeACL(instance, analysisType, target, options = {}) {
+    const toolPath = this.tools["acl-manager"];
+
+    try {
+      const env = this._getInstanceEnv(instance);
+      const args = [analysisType];
+
+      switch (analysisType) {
+        case "analyze-table":
+          args.push("--table", target);
+          if (options.includeFields) args.push("--include-fields");
+          if (options.operations) args.push("--operations", options.operations);
+          break;
+        case "analyze-user":
+          args.push("--user", target);
+          break;
+        case "analyze-role":
+          args.push("--role", target);
+          break;
+        case "security-scan":
+          if (target) args.push("--table", target);
+          if (options.severity) args.push("--severity", options.severity);
+          if (options.limit) args.push("--limit", options.limit.toString());
+          break;
+        default:
+          throw new Error(`Unknown ACL analysis type: ${analysisType}`);
+      }
+
+      const result = await execFileAsync(
+        "node",
+        [path.join(toolPath, "src", "index.js"), ...args],
+        {
+          cwd: toolPath,
+          env: { ...process.env, ...env },
+          timeout: 300000, // 5 minutes
+        }
+      );
+
+      let parsed;
+      try {
+        parsed = JSON.parse(result.stdout);
+      } catch {
+        parsed = { raw: result.stdout };
+      }
+
+      return {
+        success: true,
+        analysis_type: analysisType,
+        target,
+        instance,
+        result: parsed,
+        message: `ACL ${analysisType} completed successfully`,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        analysis_type: analysisType,
+        target,
+        error: error.message,
+        stdout: error.stdout || "",
+        stderr: error.stderr || "",
+      };
+    }
+  }
+
+  _getInstanceEnv(instance) {
+    // Map instance names to environment variables
+    const instanceMap = {
+      "my-instance": {
+        SERVICENOW_URL: process.env.MY_INSTANCE_URL || "my-instance",
+        SERVICENOW_USERNAME: process.env.MY_INSTANCE_USERNAME,
+        SERVICENOW_PASSWORD: process.env.MY_INSTANCE_PASSWORD,
+      },
+      "forvis-mazar-dev": {
+        SERVICENOW_URL: process.env.FORVIS_INSTANCE_URL || "forvis-mazar-dev",
+        SERVICENOW_USERNAME: process.env.FORVIS_INSTANCE_USERNAME,
+        SERVICENOW_PASSWORD: process.env.FORVIS_INSTANCE_PASSWORD,
+      },
+    };
+
+    const env = instanceMap[instance];
+    if (!env) {
+      throw new Error(`Unknown instance: ${instance}. Valid instances: ${Object.keys(instanceMap).join(", ")}`);
+    }
+
+    if (!env.SERVICENOW_USERNAME || !env.SERVICENOW_PASSWORD) {
+      throw new Error(`Missing credentials for instance: ${instance}. Check your .env file.`);
+    }
+
+    return env;
+  }
+}
 
 class ServiceNowClient {
   constructor(instanceUrl, username, password) {
@@ -98,6 +351,62 @@ class ServiceNowClient {
       test_sys_id: testSysId,
       steps,
     });
+  }
+
+  async runAtfTestSuite(testSuiteSysId, options = {}) {
+    const params = { test_suite_sys_id: testSuiteSysId, run_in_cloud: options.run_in_cloud ?? false };
+    for (const key of ["browser_name", "browser_version", "os_name", "os_version", "is_performance_run"]) {
+      if (options[key] !== undefined) params[key] = options[key];
+    }
+    return this.request("POST", "/api/sn_cicd/testsuite/run", null, params);
+  }
+
+  async getCicdProgress(progressId) {
+    return this.request("GET", `/api/sn_cicd/progress/${progressId}`);
+  }
+
+  async getAtfSuiteResults(resultId) {
+    return this.request("GET", `/api/sn_cicd/testsuite/results/${resultId}`);
+  }
+
+  async runAtfSuiteAndWait(testSuiteSysId, options = {}) {
+    const started = await this.runAtfTestSuite(testSuiteSysId, options);
+
+    const findLink = (obj, key) => {
+      if (!obj || typeof obj !== "object") return undefined;
+      if (obj.links && obj.links[key] && obj.links[key].id) return obj.links[key].id;
+      for (const v of Object.values(obj)) {
+        if (v && typeof v === "object") {
+          const found = findLink(v, key);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    };
+
+    const progressId = findLink(started, "progress");
+    if (!progressId) {
+      return { started, progress: null, results: null, timed_out: false };
+    }
+
+    const pendingLabels = ["pending", "running", "in progress", "in_progress"];
+    let progress = await this.getCicdProgress(progressId);
+    let timedOut = true;
+
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const statusLabel = (progress?.result?.status_label || "").toString().toLowerCase();
+      if (!pendingLabels.includes(statusLabel)) {
+        timedOut = false;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+      progress = await this.getCicdProgress(progressId);
+    }
+
+    const resultId = findLink(progress, "results") || findLink(progress, "result");
+    const results = resultId ? await this.getAtfSuiteResults(resultId) : null;
+
+    return { started, progress, results, timed_out: timedOut };
   }
 
   // Specific operations
@@ -202,6 +511,102 @@ class ServiceNowClient {
     // Otherwise just set the notes
     return this.updateRecord("rm_story", storyId, { u_build_notes: buildNotes });
   }
+
+  // -------------------------------------------------------------------------
+  // ACL Operations
+  // -------------------------------------------------------------------------
+
+  async getACLs(tableName = "", operation = "", active = null, limit = 50) {
+    const conditions = [];
+    if (tableName) conditions.push(`nameSTARTSWITH${tableName}`);
+    if (operation) conditions.push(`operation=${operation}`);
+    if (active !== null) conditions.push(`active=${active}`);
+    const query = conditions.join("^");
+    const params = {
+      sysparm_limit: limit,
+      sysparm_fields: "sys_id,name,operation,active,advanced,condition,script,admin_overrides,description,type",
+    };
+    if (query) params.sysparm_query = query;
+    return this.request("GET", "/api/now/table/sys_security_acl", null, params);
+  }
+
+  async getACL(sysId) {
+    return this.getRecord("sys_security_acl", sysId);
+  }
+
+  async createACL(data) {
+    const { roles = [], ...aclData } = data;
+    // Create the ACL record
+    const aclResult = await this.createRecord("sys_security_acl", aclData);
+    const aclSysId = aclResult.result?.sys_id;
+
+    if (!aclSysId) {
+      return { success: false, error: "ACL creation did not return a sys_id", raw: aclResult };
+    }
+
+    // Assign roles if provided
+    const roleResults = [];
+    for (const roleName of roles) {
+      try {
+        const roleSearch = await this.getRecords("sys_user_role", 1, `name=${roleName}`);
+        const roleSysId = roleSearch.result?.[0]?.sys_id;
+        if (roleSysId) {
+          const roleLink = await this.createRecord("sys_security_acl_role", {
+            sys_security_acl: aclSysId,
+            sys_user_role: roleSysId,
+          });
+          roleResults.push({ role: roleName, sys_id: roleSysId, linked: roleLink.result?.sys_id });
+        } else {
+          roleResults.push({ role: roleName, error: `Role '${roleName}' not found` });
+        }
+      } catch (e) {
+        roleResults.push({ role: roleName, error: e.message });
+      }
+    }
+
+    return {
+      success: true,
+      acl: aclResult.result,
+      roles_assigned: roleResults,
+    };
+  }
+
+  async updateACL(sysId, data) {
+    return this.updateRecord("sys_security_acl", sysId, data);
+  }
+
+  async deleteACL(sysId) {
+    return this.deleteRecord("sys_security_acl", sysId);
+  }
+
+  async getACLRoles(aclSysId) {
+    const params = {
+      sysparm_query: `sys_security_acl=${aclSysId}`,
+      sysparm_fields: "sys_id,sys_user_role,sys_user_role.name,sys_name",
+      sysparm_limit: 50,
+    };
+    return this.request("GET", "/api/now/table/sys_security_acl_role", null, params);
+  }
+
+  async addRoleToACL(aclSysId, roleNameOrSysId) {
+    // Determine if input is a role name or sys_id
+    const isGuid = /^[a-f0-9]{32}$/i.test(roleNameOrSysId);
+    let roleSysId = roleNameOrSysId;
+
+    if (!isGuid) {
+      const roleSearch = await this.getRecords("sys_user_role", 1, `name=${roleNameOrSysId}`);
+      roleSysId = roleSearch.result?.[0]?.sys_id;
+      if (!roleSysId) {
+        throw new Error(`Role '${roleNameOrSysId}' not found`);
+      }
+    }
+
+    return this.createRecord("sys_security_acl_role", { sys_security_acl: aclSysId, sys_user_role: roleSysId });
+  }
+
+  async removeRoleFromACL(aclRoleSysId) {
+    return this.deleteRecord("sys_security_acl_role", aclRoleSysId);
+  }
 }
 
 // Initialize ServiceNow client
@@ -216,6 +621,7 @@ if (!instance || !username || !password) {
 }
 
 const client = new ServiceNowClient(instance, username, password);
+const orchestrator = new ToolOrchestrator();
 
 // Create MCP server
 const server = new Server(
@@ -361,6 +767,34 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
         },
         required: ["test_sys_id", "steps"],
+      },
+    },
+    {
+      name: "run_atf_suite",
+      description:
+        "Run a sys_atf_test_suite via ServiceNow's native CI/CD REST API (/api/sn_cicd/testsuite/run), poll progress, and return pass/fail results. No custom endpoint install required (unlike create_atf_steps), but the calling user needs the sn_cicd.sys_ci_automation or admin role. Pure server-side-script suites run with no further setup. Suites containing UI-driven steps (Open a New Form, Set Field Values, etc.) require a configured test runner — ServiceNow's Cloud Runner product (run_in_cloud=true), a configured headless browser, or a live scheduled Client Test Runner session — otherwise the run will hang or fail waiting for a runner.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          test_suite_sys_id: {
+            type: "string",
+            description: "sys_id of the sys_atf_test_suite record to run",
+          },
+          run_in_cloud: {
+            type: "boolean",
+            description: "true to execute via ServiceNow's Cloud Runner product; false (default) to use the manual test runner. Only relevant for suites with UI-driven steps.",
+            default: false,
+          },
+          browser_name: {
+            type: "string",
+            description: "Browser to use for UI-driven steps (e.g. chrome, firefox, edge). Must match a scheduled client test runner.",
+          },
+          os_name: {
+            type: "string",
+            description: "Operating system to run under for UI-driven steps. Must match a scheduled client test runner.",
+          },
+        },
+        required: ["test_suite_sys_id"],
       },
     },
     {
@@ -708,6 +1142,401 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         required: ["sys_id", "build_notes"],
       },
     },
+    // ServiceNow Tool Orchestrator
+    {
+      name: "validate_scripts",
+      description: "Validate ServiceNow scripts against best practices using the script-checker tool. Returns detailed analysis with violations and recommendations.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+          script_type: {
+            type: "string",
+            description: "Type of scripts to check (business_rule, client_script, ui_action, script_include, all)",
+            enum: ["business_rule", "client_script", "ui_action", "script_include", "all"],
+            default: "all",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of scripts to analyze",
+            default: 50,
+          },
+          custom_only: {
+            type: "boolean",
+            description: "Only analyze custom scripts (not out-of-box ServiceNow scripts)",
+            default: false,
+          },
+        },
+        required: ["instance"],
+      },
+    },
+    {
+      name: "load_test_data",
+      description: "Generate and load realistic test data into ServiceNow using the data-loader tool. Supports incidents, changes, problems, major-incidents, and stories.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+          record_type: {
+            type: "string",
+            description: "Type of records to generate",
+            enum: ["incident", "change", "problem", "major-incident", "story"],
+          },
+          count: {
+            type: "number",
+            description: "Number of records to generate",
+            default: 10,
+          },
+        },
+        required: ["instance", "record_type"],
+      },
+    },
+    {
+      name: "analyze_ux",
+      description: "Perform automated UX/UI analysis of ServiceNow using Playwright. Analyzes accessibility, responsiveness, and user experience.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+          analysis_type: {
+            type: "string",
+            description: "Type of UX analysis to perform",
+            enum: ["general", "esc", "portal", "workspace"],
+            default: "general",
+          },
+          guideline: {
+            type: "string",
+            description: "Guideline file to run the analysis against",
+            enum: [
+              "servicenow-ux-guidelines.md",
+              "Design-Visual-UX-Guidelines.md",
+              "wcag-2.2-level-aa.md",
+              "wcag-2.2-level-aaa.md",
+            ],
+          },
+        },
+        required: ["instance"],
+      },
+    },
+    {
+      name: "analyze_taxonomy",
+      description: "Analyze ServiceNow Employee Center taxonomy and provide AI-powered recommendations for organization and categorization.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+        },
+        required: ["instance"],
+      },
+    },
+
+    // -----------------------------------------------------------------------
+    // ACL Management Tools
+    // -----------------------------------------------------------------------
+    {
+      name: "get_acls",
+      description: "List ACL rules from ServiceNow, with optional filters by table, operation, and active status. References Guidelines.md for interpretation.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          table: {
+            type: "string",
+            description: "Filter by table name prefix (e.g., 'incident' returns all incident ACLs including field-level)",
+          },
+          operation: {
+            type: "string",
+            description: "Filter by operation",
+            enum: ["read", "write", "create", "delete", "execute", "report_on", "import", "export"],
+          },
+          active: {
+            type: "boolean",
+            description: "Filter by active status (true=active only, false=inactive only, omit=all)",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of ACLs to return",
+            default: 50,
+          },
+        },
+      },
+    },
+    {
+      name: "get_acl",
+      description: "Get a single ACL record by sys_id, including all fields (condition, script, roles).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sys_id: {
+            type: "string",
+            description: "Sys ID of the ACL record",
+          },
+        },
+        required: ["sys_id"],
+      },
+    },
+    {
+      name: "create_acl",
+      description: "Create a new ACL rule in ServiceNow and assign roles to it. Use natural language intent to determine the correct parameters per Guidelines.md. Example: create read ACL on incident table for itil role.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          name: {
+            type: "string",
+            description: "Table name (e.g., 'incident') or table.field (e.g., 'incident.u_sensitive_notes')",
+          },
+          operation: {
+            type: "string",
+            description: "Operation to control",
+            enum: ["read", "write", "create", "delete", "execute", "report_on", "import", "export"],
+          },
+          roles: {
+            type: "array",
+            items: { type: "string" },
+            description: "Array of role names to assign (e.g., ['itil', 'incident_manager']). Users need ANY ONE of these roles.",
+          },
+          description: {
+            type: "string",
+            description: "Human-readable description explaining why this ACL exists (required by guidelines)",
+          },
+          active: {
+            type: "boolean",
+            description: "Whether the ACL is active",
+            default: true,
+          },
+          admin_overrides: {
+            type: "boolean",
+            description: "Whether admin role bypasses this ACL. Set false for sensitive data per guidelines.",
+            default: true,
+          },
+          advanced: {
+            type: "boolean",
+            description: "Set true if using a script condition",
+            default: false,
+          },
+          condition: {
+            type: "string",
+            description: "Condition script (non-advanced). E.g., 'current.opened_by == gs.getUserID()'",
+          },
+          script: {
+            type: "string",
+            description: "Advanced script (when advanced=true). Must include try/catch and set answer=true/false.",
+          },
+          type: {
+            type: "string",
+            description: "ACL type. Defaults to 'record' for table-level ACLs.",
+            default: "record",
+          },
+        },
+        required: ["name", "operation"],
+      },
+    },
+    {
+      name: "update_acl",
+      description: "Update fields on an existing ACL rule (description, condition, script, active status, admin_overrides, etc.).",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sys_id: {
+            type: "string",
+            description: "Sys ID of the ACL to update",
+          },
+          data: {
+            type: "object",
+            description: "Fields to update. Valid keys: active, admin_overrides, advanced, condition, script, description",
+          },
+        },
+        required: ["sys_id", "data"],
+      },
+    },
+    {
+      name: "deactivate_acl",
+      description: "Deactivate an ACL rule (sets active=false). Preferred over deletion per guidelines — keeps the rule for audit trail.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sys_id: {
+            type: "string",
+            description: "Sys ID of the ACL to deactivate",
+          },
+          reason: {
+            type: "string",
+            description: "Reason for deactivation — will be appended to the ACL description",
+          },
+        },
+        required: ["sys_id"],
+      },
+    },
+    {
+      name: "delete_acl",
+      description: "Permanently delete an ACL rule. Use deactivate_acl first and only delete after 30+ days per guidelines. Never delete out-of-box ACLs.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          sys_id: {
+            type: "string",
+            description: "Sys ID of the ACL to delete",
+          },
+        },
+        required: ["sys_id"],
+      },
+    },
+    {
+      name: "get_acl_roles",
+      description: "Get all roles assigned to a specific ACL rule.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          acl_sys_id: {
+            type: "string",
+            description: "Sys ID of the ACL",
+          },
+        },
+        required: ["acl_sys_id"],
+      },
+    },
+    {
+      name: "add_role_to_acl",
+      description: "Add a role to an existing ACL rule. Accepts role name (e.g., 'itil') or role sys_id.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          acl_sys_id: {
+            type: "string",
+            description: "Sys ID of the ACL",
+          },
+          role: {
+            type: "string",
+            description: "Role name (e.g., 'itil') or role sys_id",
+          },
+        },
+        required: ["acl_sys_id", "role"],
+      },
+    },
+    {
+      name: "remove_role_from_acl",
+      description: "Remove a role from an ACL rule by deleting the sys_security_acl_role link record.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          acl_role_sys_id: {
+            type: "string",
+            description: "Sys ID of the sys_security_acl_role record (not the ACL itself — use get_acl_roles to find it)",
+          },
+        },
+        required: ["acl_role_sys_id"],
+      },
+    },
+    {
+      name: "analyze_acl_table",
+      description: "Perform a full ACL analysis for a ServiceNow table. Returns all ACLs (active/inactive), their roles, operations covered/missing, and security notes. References Guidelines.md.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+          table: {
+            type: "string",
+            description: "Table name to analyze (e.g., 'incident', 'sc_request')",
+          },
+          include_fields: {
+            type: "boolean",
+            description: "Include field-level ACLs in analysis",
+            default: false,
+          },
+          operations: {
+            type: "string",
+            description: "Comma-separated list of operations to focus on (e.g., 'read,write'). Omit for all.",
+          },
+        },
+        required: ["instance", "table"],
+      },
+    },
+    {
+      name: "analyze_acl_user",
+      description: "Analyze effective ACL access for a specific user. Returns all roles (direct + via groups), and every table/operation the user can access based on those roles.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+          user: {
+            type: "string",
+            description: "Username (e.g., 'john.doe') or user sys_id",
+          },
+        },
+        required: ["instance", "user"],
+      },
+    },
+    {
+      name: "analyze_acl_role",
+      description: "Analyze all ACL rules associated with a specific role. Returns every table and operation this role grants access to.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+          role: {
+            type: "string",
+            description: "Role name (e.g., 'itil', 'sn_request_read')",
+          },
+        },
+        required: ["instance", "role"],
+      },
+    },
+    {
+      name: "security_scan_acls",
+      description: "Run a security vulnerability scan against ACL rules. Checks for open-access ACLs, script vulnerabilities, duplicate rules, missing descriptions, and more. References Guidelines.md Section 12.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          instance: {
+            type: "string",
+            description: "Instance name (my-instance or forvis-mazar-dev)",
+            enum: ["my-instance", "forvis-mazar-dev"],
+          },
+          table: {
+            type: "string",
+            description: "Scope scan to a specific table (e.g., 'incident'). Omit to scan all ACLs.",
+          },
+          severity: {
+            type: "string",
+            description: "Comma-separated severity levels to include: critical,high,medium,low",
+            default: "critical,high,medium,low",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum number of ACLs to scan",
+            default: 200,
+          },
+        },
+        required: ["instance"],
+      },
+    },
   ],
 }));
 
@@ -741,6 +1570,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       case "create_atf_steps":
         result = await client.createAtfSteps(args.test_sys_id, args.steps);
+        break;
+
+      case "run_atf_suite":
+        result = await client.runAtfSuiteAndWait(args.test_suite_sys_id, {
+          run_in_cloud: args.run_in_cloud,
+          browser_name: args.browser_name,
+          os_name: args.os_name,
+        });
         break;
 
       case "get_incidents":
@@ -800,6 +1637,108 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           args.sys_id,
           args.build_notes,
           args.append || false
+        );
+        break;
+
+      // Tool Orchestrator cases
+      case "validate_scripts":
+        result = await orchestrator.validateScripts(args.instance, {
+          scriptType: args.script_type,
+          limit: args.limit,
+          customOnly: args.custom_only,
+        });
+        break;
+
+      case "load_test_data":
+        result = await orchestrator.loadData(args.instance, args.record_type, args.count);
+        break;
+
+      case "analyze_ux":
+        result = await orchestrator.analyzeUX(args.instance, args.analysis_type, { guideline: args.guideline });
+        break;
+
+      case "analyze_taxonomy":
+        result = await orchestrator.analyzeTaxonomy(args.instance);
+        break;
+
+      // ACL Management
+      case "get_acls":
+        result = await client.getACLs(
+          args.table || "",
+          args.operation || "",
+          args.active !== undefined ? args.active : null,
+          args.limit || 50
+        );
+        break;
+
+      case "get_acl":
+        result = await client.getACL(args.sys_id);
+        break;
+
+      case "create_acl":
+        result = await client.createACL(args);
+        break;
+
+      case "update_acl":
+        result = await client.updateACL(args.sys_id, args.data);
+        break;
+
+      case "deactivate_acl": {
+        // Optionally append reason to description
+        const updateData = { active: false };
+        if (args.reason) {
+          const existing = await client.getACL(args.sys_id);
+          const currentDesc = existing?.result?.description || "";
+          const deactivationNote = `[DEACTIVATED ${new Date().toISOString().split("T")[0]}: ${args.reason}]`;
+          updateData.description = currentDesc
+            ? `${currentDesc} | ${deactivationNote}`
+            : deactivationNote;
+        }
+        result = await client.updateACL(args.sys_id, updateData);
+        break;
+      }
+
+      case "delete_acl":
+        result = await client.deleteACL(args.sys_id);
+        break;
+
+      case "get_acl_roles":
+        result = await client.getACLRoles(args.acl_sys_id);
+        break;
+
+      case "add_role_to_acl":
+        result = await client.addRoleToACL(args.acl_sys_id, args.role);
+        break;
+
+      case "remove_role_from_acl":
+        result = await client.removeRoleFromACL(args.acl_role_sys_id);
+        break;
+
+      // ACL Analysis (delegated to servicenow-acl-manager tool)
+      case "analyze_acl_table":
+        result = await orchestrator.analyzeACL(args.instance, "analyze-table", args.table, {
+          includeFields: args.include_fields,
+          operations: args.operations,
+        });
+        break;
+
+      case "analyze_acl_user":
+        result = await orchestrator.analyzeACL(args.instance, "analyze-user", args.user);
+        break;
+
+      case "analyze_acl_role":
+        result = await orchestrator.analyzeACL(args.instance, "analyze-role", args.role);
+        break;
+
+      case "security_scan_acls":
+        result = await orchestrator.analyzeACL(
+          args.instance,
+          "security-scan",
+          args.table || "",
+          {
+            severity: args.severity || "critical,high,medium,low",
+            limit: args.limit || 200,
+          }
         );
         break;
 

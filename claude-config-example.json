@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "servicenow-orchestrator": {
+      "command": "node",
+      "args": ["C:\Coding Projects\servicenow-mcp-doc\server.js"],
+      "env": {}
+    }
+  }
+}
