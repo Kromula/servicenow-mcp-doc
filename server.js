@@ -237,7 +237,8 @@ class ToolOrchestrator {
   }
 
   _getInstanceEnv(instance) {
-    // Map instance names to environment variables
+    // Instances come from <PREFIX>_INSTANCE_URL/_USERNAME/_PASSWORD env vars (managed by the dashboard
+    // Instance Manager). An instance is addressed by the first label of its URL host; legacy names kept.
     const instanceMap = {
       "my-instance": {
         SERVICENOW_URL: process.env.MY_INSTANCE_URL || "my-instance",
@@ -250,6 +251,19 @@ class ToolOrchestrator {
         SERVICENOW_PASSWORD: process.env.FORVIS_INSTANCE_PASSWORD,
       },
     };
+    for (const key of Object.keys(process.env)) {
+      const prefix = /^(.+_INSTANCE)_URL$/.exec(key)?.[1];
+      const url = process.env[key];
+      if (!prefix || !url) continue;
+      const host = url.includes("://") ? new URL(url).hostname : url;
+      const id = host.split(".")[0];
+      if (instanceMap[id]) continue;
+      instanceMap[id] = {
+        SERVICENOW_URL: url,
+        SERVICENOW_USERNAME: process.env[`${prefix}_USERNAME`],
+        SERVICENOW_PASSWORD: process.env[`${prefix}_PASSWORD`],
+      };
+    }
 
     const env = instanceMap[instance];
     if (!env) {
